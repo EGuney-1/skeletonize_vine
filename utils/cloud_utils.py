@@ -1,7 +1,8 @@
-import numpy
+import numpy as np
 import open3d
 from scipy.spatial import KDTree
-
+from plyfile import *
+from pathlib import Path
 
 def ht_from_points(p1, p2, offset=0.0):
     """
@@ -19,11 +20,11 @@ def ht_from_points(p1, p2, offset=0.0):
         4x4 homogeneous transform
     """
 
-    ht = numpy.eye(4)
+    ht = np.eye(4)
     # Center
-    ht[:3, 3] = numpy.average((p1, p2), axis=0)
+    ht[:3, 3] = np.average((p1, p2), axis=0)
     # Z axis
-    ht[:3, 2] = (p2 - p1) / numpy.linalg.norm(p2 - p1)
+    ht[:3, 2] = (p2 - p1) / np.linalg.norm(p2 - p1)
     # X axis
     ht[:3, 0] = orthogonal(ht[:3, 0], [ht[:3, 2]])
     # Y axis
@@ -32,6 +33,37 @@ def ht_from_points(p1, p2, offset=0.0):
     ht[:3, 3] = ht[:3, 3] + offset * ht[:3, 2]
     return ht
 
+def load_ptclouds_npz(cloud_paths):
+    """
+    Open a series of cloud files and add them all together
+
+    Arguments:
+        cloud_paths: list of pathlib.Path objects pointing to cloud .ply files
+
+    Returns:
+        open3d.geometry.PointCloud file, summing the input files
+    """
+    def __load_npz(filepath: Path):
+        data = np.load(filepath)
+        res = {}
+        for f in data.files:
+            res[f] = data[f]
+        return res
+    
+    result = open3d.geometry.PointCloud()
+    for p in cloud_paths:
+        data = __load_npz(p)
+
+        # 'xyz' key must be present, which is the position of each point
+        assert 'xyz' in data.keys()
+        ptcloud = open3d.geometry.PointCloud()
+        ptcloud.points = open3d.utility.Vector3dVector(data['xyz'])
+        
+        if 'rgb' in data.keys():
+            ptcloud.colors = open3d.utility.Vector3dVector(data['rgb'])
+
+        result += ptcloud
+    return result
 
 def load_clouds(cloud_paths):
     """
@@ -66,7 +98,7 @@ def object_from_pts(p1, p2, color, shape, radius=1e-6):
         open3d.geometry.TriangleMesh object
     """
 
-    length = numpy.linalg.norm(p2 - p1)
+    length = np.linalg.norm(p2 - p1)
     if shape == "cylinder":
         thing = open3d.geometry.TriangleMesh.create_cylinder(
             radius=radius,
@@ -107,10 +139,10 @@ def orthogonal(v, axes):
     """
     for axis in axes:
         v = v - axis * (axis.dot(v))
-    len_v = numpy.linalg.norm(v)
+    len_v = np.linalg.norm(v)
     # Fallback randomness
     if len_v < 1e-6:
-        return orthogonal(numpy.random.random(3), axes)
+        return orthogonal(np.random.random(3), axes)
     return v / len_v
 
 
@@ -125,7 +157,7 @@ def smoothing(cloud, radius=0.01):
     Returns: open3d.geometry.PointCloud object where the points have been
         pulled closer to a local center
     """
-    points = numpy.asarray(cloud.points)
+    points = np.asarray(cloud.points)
     kdtree = open3d.geometry.KDTreeFlann(cloud)
     from tqdm import tqdm
 
@@ -135,22 +167,22 @@ def smoothing(cloud, radius=0.01):
         _, idx, _ = kdtree.search_knn_vector_3d(point, knn=20)
         in_radius = points[idx, :]
 
-        centered = in_radius - numpy.mean(in_radius, axis=0)
+        centered = in_radius - np.mean(in_radius, axis=0)
         covariance_matrix = (centered.T @ centered) / len(centered)
-        _, singular_values, _ = numpy.linalg.svd(covariance_matrix)
+        _, singular_values, _ = np.linalg.svd(covariance_matrix)
 
         _, idx, _ = kdtree.search_radius_vector_3d(
             point,
-            radius=0.001 + radius * numpy.sqrt(singular_values[1] / singular_values[0]),
+            radius=0.001 + radius * np.sqrt(singular_values[1] / singular_values[0]),
         )
-        filtered.append(numpy.mean(points[idx, :], axis=0))
+        filtered.append(np.mean(points[idx, :], axis=0))
         if len(cloud.colors) > 0:
-            colors.append(numpy.mean(numpy.asarray(cloud.colors)[idx, :], axis=0))
+            colors.append(np.mean(np.asarray(cloud.colors)[idx, :], axis=0))
 
     new_cloud = open3d.geometry.PointCloud()
-    new_cloud.points = open3d.utility.Vector3dVector(numpy.array(filtered))
+    new_cloud.points = open3d.utility.Vector3dVector(np.array(filtered))
     if len(colors) > 0:
-        new_cloud.colors = open3d.utility.Vector3dVector(numpy.array(colors))
+        new_cloud.colors = open3d.utility.Vector3dVector(np.array(colors))
     return new_cloud
 
 
@@ -165,8 +197,8 @@ def sort_for_vis(cloud):
     Returns:
         open3d.geometry.PointCloud object with the points/color resorted
     """
-    points = numpy.asarray(cloud.points)
-    colors = numpy.asarray(cloud.colors)
+    points = np.asarray(cloud.points)
+    colors = np.asarray(cloud.colors)
     tree = KDTree(points)
     cloud.points = open3d.utility.Vector3dVector(points[tree.indices])
     cloud.colors = open3d.utility.Vector3dVector(colors[tree.indices])
@@ -179,7 +211,7 @@ def vis_points(indices, points, color, save_dir, name):
     point cloud
 
     Arguments:
-        indices: numpy array of indices in points we want to select
+        indices: np array of indices in points we want to select
         points: (N, 3) array of 3D points in space
         color: 3-element tuple/list from 0-1 (RGB)
         save_dir: pathlib.Path directory where the cloud is saved

@@ -3,11 +3,14 @@ Takes in vine-only point clouds and produces skeletal line segments with radii.
 """
 
 import argparse
-from collections import Counter
 import multiprocessing
 import numpy
+import sys
 from pathlib import Path
+from collections import Counter
 from scipy.sparse import csgraph
+from utils.cloud_utils import *
+from tqdm import tqdm 
 
 from utils.graph_utils import (
     calculate_line_components,
@@ -30,7 +33,7 @@ FILTERS = (
 )
 
 
-def main():
+def _parse_args():
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -95,17 +98,20 @@ def main():
         "--vis-mst-mesh",
         help="Whether to visualize mesh of MST graph (slow).",
         action="store_true",
+        default=False
     )
     parser.add_argument(
         "--vis-refine-process",
         help="Whether to visualize various sub-parts of the refinement (slow).",
         action="store_true",
+        default=False
     )
     parser.add_argument(
         "--vis-subgraphs",
         help="Whether to export all subgraphs (based on topology), is most"
         " useful when debugging the subgraph process (slow).",
         action="store_true",
+        default=False
     )
     parser.add_argument(
         "--voxel-size-initial",
@@ -127,7 +133,10 @@ def main():
         type=float,
         default=0.1,
     )
-    args = parser.parse_args()
+    return parser.parse_args()
+
+def main():
+    args = _parse_args()
 
     for path in args.cloud_paths:
         assert path.is_file(), f"--cloud-paths {path} was not a valid file"
@@ -160,8 +169,10 @@ def main():
     }
 
     ###########################################################################
+    pt_cloud = load_ptclouds_npz(args.cloud_paths)
+
     cloud, graph, dist_graph = construct_graph(
-        cloud_paths=args.cloud_paths,
+        pt_clouds=pt_cloud,
         save_cloud_dir=args.save_dir,
         save_graph_dir=args.save_dir,
         filtering=FILTERS,
@@ -196,9 +207,12 @@ def main():
     )
 
     print("Opening multiple threads for calculating lines...")
-    multiprocessing.set_start_method("forkserver", force=True)
+    if sys.platform.startswith('win'):
+        multiprocessing.set_start_method("spawn", force=True)
+    else:
+        multiprocessing.set_start_method("forkserver", force=True)
     # TODO: Check which number of processes is fastest, not just max
-    pool = multiprocessing.Pool(processes=8)
+    pool = multiprocessing.Pool(processes=16)
 
     workers = []
     # Go through the biggest labels first
@@ -208,14 +222,15 @@ def main():
         return_labels=True,
     )
     points = numpy.asarray(cloud.points)
-    for _, label in sorted(
-        [
-            (count, label)
-            for label, count in Counter(labels).items()
-            if count > args.min_point_count
-        ],
-        reverse=True,
-    ):
+    filtered_labels = [
+        (count, label)
+        for label, count in Counter(labels).items()
+        if count > args.min_point_count
+    ]
+    filtered_labels = sorted(filtered_labels, reverse=True)
+
+    print(f'>>> starting loop 1')
+    for _, label in tqdm(filtered_labels):
         worker = pool.apply_async(
             calculate_line_components,
             args=(
@@ -234,10 +249,16 @@ def main():
             ),
         )
         workers.append(worker)
+
+    print(f'>>> waiting for workers:  ', end='')
     for worker in workers:
         worker.get()
+        print(f'*', end='')
 
+    print(f'>>> starting consolidate_lines()')
     lines, _ = consolidate_lines(args.save_dir)
+
+    print(f'>>> done')
     consolidate_vis_lines(args.save_dir)
 
 

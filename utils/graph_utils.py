@@ -6,6 +6,7 @@ from matplotlib import pyplot
 import networkx
 import numpy
 import open3d
+import pathlib
 from os import remove
 from scipy import sparse
 from scipy.optimize import minimize
@@ -944,14 +945,7 @@ def consolidate_vis_lines(save_dir):
     )
 
 
-def construct_graph(
-    cloud_paths,
-    save_cloud_dir,
-    save_graph_dir,
-    filtering,
-    use_density,
-    final_voxel_size,
-):
+def construct_graph(pt_clouds, save_cloud_dir, save_graph_dir, filtering, use_density, final_voxel_size):
     """
     Takes in a set of cloud files, filters and downsamples the points, then
     builds a locally connected graph
@@ -977,7 +971,10 @@ def construct_graph(
             edge weights are the 3D distances between points
     """
 
-    cloud = load_clouds(cloud_paths)
+    cloud = pt_clouds
+    if isinstance(pt_clouds, pathlib.PurePath):
+        cloud = load_clouds(pt_clouds)
+    
     original_cloud = open3d.geometry.PointCloud(cloud)
     for name, kwargs in filtering:
         if name == "smoothing":
