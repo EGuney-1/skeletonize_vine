@@ -11,3 +11,9 @@ There are a variety of parameters that can be tweaked, with reasonable defaults 
 ```
 python3 skeletonize.py --help
 ```
+
+## Installation
+Create a venv and activate it, then install the following packages:
+```
+pip install numpy matplotlib scipy open3d tqdm plyfile networkx
+```

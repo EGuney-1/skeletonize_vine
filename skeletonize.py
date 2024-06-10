@@ -169,7 +169,8 @@ def main():
     }
 
     ###########################################################################
-    pt_cloud = load_ptclouds_npz(args.cloud_paths)
+    # pt_cloud = load_ptclouds_npz(args.cloud_paths)
+    pt_cloud = load_ptclouds_ply(args.cloud_paths)
 
     cloud, graph, dist_graph = construct_graph(
         pt_clouds=pt_cloud,

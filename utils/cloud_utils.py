@@ -38,7 +38,7 @@ def load_ptclouds_npz(cloud_paths):
     Open a series of cloud files and add them all together
 
     Arguments:
-        cloud_paths: list of pathlib.Path objects pointing to cloud .ply files
+        cloud_paths: list of pathlib.Path objects pointing to cloud .npz files
 
     Returns:
         open3d.geometry.PointCloud file, summing the input files
@@ -64,6 +64,44 @@ def load_ptclouds_npz(cloud_paths):
 
         result += ptcloud
     return result
+
+def load_ptclouds_ply(cloud_paths):
+    """
+    Open a series of cloud files and add them all together
+
+    Arguments:
+        cloud_paths: list of pathlib.Path objects pointing to cloud .ply files
+
+    Returns:
+        open3d.geometry.PointCloud file, summing the input files
+    """
+    def __load_ply(filepath: Path):
+        ply_data = PlyData.read(filepath, mmap=False)
+        vertices = ply_data['vertex']
+
+        # position
+        x = vertices['x']
+        y = vertices['y']
+        z = vertices['z']
+        position = np.stack([x, y, z], axis=1)
+
+        return {'xyz': position}
+
+    result = open3d.geometry.PointCloud()
+    for p in cloud_paths:
+        data = __load_ply(p)
+
+        # 'xyz' key must be present, which is the position of each point
+        assert 'xyz' in data.keys()
+        ptcloud = open3d.geometry.PointCloud()
+        ptcloud.points = open3d.utility.Vector3dVector(data['xyz'])
+        
+        if 'rgb' in data.keys():
+            ptcloud.colors = open3d.utility.Vector3dVector(data['rgb'])
+
+        result += ptcloud
+    return result
+
 
 def load_clouds(cloud_paths):
     """
@@ -201,7 +239,9 @@ def sort_for_vis(cloud):
     colors = np.asarray(cloud.colors)
     tree = KDTree(points)
     cloud.points = open3d.utility.Vector3dVector(points[tree.indices])
-    cloud.colors = open3d.utility.Vector3dVector(colors[tree.indices])
+
+    if colors.shape[0] == points.shape[0]:
+        cloud.colors = open3d.utility.Vector3dVector(colors[tree.indices])
     return cloud
 
 
